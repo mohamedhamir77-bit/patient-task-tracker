@@ -1,0 +1,221 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Patient Task Tracker</title>
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#263238">
+<style>
+body{margin:0;background:#f6f2e9;font-family:Arial;color:#1f2933}
+header{background:#263238;color:white;text-align:center;padding:16px}
+main{padding:12px;max-width:950px;margin:auto}
+.card{background:white;border:2px solid #ddd6ca;border-radius:18px;padding:14px;margin:12px 0}
+input,textarea,select{width:100%;box-sizing:border-box;font-size:16px;padding:11px;margin:5px 0;border:2px solid #ddd6ca;border-radius:12px}
+textarea{min-height:75px}
+button{border:0;border-radius:12px;padding:10px 12px;margin:4px;font-weight:bold;color:white;background:#263238}
+.green{background:#15803d}.red{background:#b91c1c}.blue{background:#2563eb}.gold{background:#9b7a3a}
+.tabs{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.tab{background:#e5e7eb;color:#111}.active{background:#263238;color:white}
+.hidden{display:none}
+.patient{background:#fffdfa;border:2px solid #ddd6ca;border-left:10px solid #15803d;border-radius:14px;padding:12px;margin:10px 0}
+.p1{border-left-color:#b91c1c}.p2{border-left-color:#d97706}.p3{border-left-color:#9b7a3a}.p4,.p5{border-left-color:#15803d}
+.badge{display:inline-block;color:white;background:#2563eb;border-radius:999px;padding:4px 8px;font-size:12px;font-weight:bold;margin:2px}
+.urgent{background:#b91c1c}.waiting{background:#9b7a3a}.done{background:#15803d}
+.note{border-top:1px solid #ddd6ca;margin-top:8px;padding-top:8px;white-space:pre-wrap}
+.time{font-weight:bold;color:#2563eb}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.stat{font-size:28px;font-weight:bold}
+@media(max-width:650px){.tabs{grid-template-columns:1fr 1fr}.grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header><h1>Patient Task Tracker</h1></header>
+<main>
+
+<div class="tabs">
+<button id="tactive" class="tab active" onclick="show('active')">Active</button>
+<button id="tadd" class="tab" onclick="show('add')">Add</button>
+<button id="ttoday" class="tab" onclick="show('today')">Due</button>
+<button id="tcompleted" class="tab" onclick="show('completed')">Completed</button>
+<button id="tbackup" class="tab" onclick="show('backup')">Backup</button>
+</div>
+
+<section id="active">
+<div class="grid">
+<div class="card"><b>Active patients</b><div class="stat" id="sActive">0</div></div>
+<div class="card"><b>High priority</b><div class="stat" id="sHigh">0</div></div>
+</div>
+<div class="card">
+<h2>Search / filter</h2>
+<input id="search" oninput="render()" placeholder="Search patient ref, task, notes...">
+<select id="statusFilter" onchange="render()">
+<option value="">All statuses</option>
+<option>Active</option>
+<option>Waiting</option>
+<option>Review needed</option>
+</select>
+<div id="activeList"></div>
+</div>
+</section>
+
+<section id="add" class="hidden">
+<div class="card">
+<h2>Add / Edit patient task</h2>
+<p><b>Use coded patient references only.</b></p>
+<input id="patientRef" placeholder="Patient ref e.g. AB-123">
+<input id="dobYear" placeholder="DOB year only e.g. 1954">
+<input id="dateAdded" type="date">
+<input id="dueDate" type="date">
+<select id="priority">
+<option value="1">Priority 1 - urgent</option>
+<option value="2">Priority 2 - high</option>
+<option value="3">Priority 3 - medium</option>
+<option value="4">Priority 4 - routine</option>
+<option value="5">Priority 5 - low</option>
+</select>
+<select id="taskType">
+<option>Medication review</option>
+<option>BP review</option>
+<option>Diabetes review</option>
+<option>Blood results</option>
+<option>Hospital query</option>
+<option>Prescription issue</option>
+<option>Follow-up call</option>
+<option>Admin</option>
+<option>Other</option>
+</select>
+<select id="status">
+<option>Active</option>
+<option>Waiting</option>
+<option>Review needed</option>
+</select>
+<textarea id="actionNeeded" placeholder="What needs doing?"></textarea>
+<textarea id="clinicalNotes" placeholder="Notes / context"></textarea>
+<button class="green" onclick="savePatient()">Save</button>
+<button class="red" onclick="clearForm();show('active')">Cancel</button>
+</div>
+</section>
+
+<section id="today" class="hidden">
+<div class="card"><h2>Due / overdue</h2><div id="dueList"></div></div>
+</section>
+
+<section id="completed" class="hidden">
+<div class="card"><h2>Completed / archived</h2><div id="completedList"></div></div>
+</section>
+
+<section id="backup" class="hidden">
+<div class="card">
+<h2>Backup / restore</h2>
+<button class="blue" onclick="exportData()">Export backup</button>
+<textarea id="importBox" placeholder="Paste backup here"></textarea>
+<button class="green" onclick="importData()">Restore backup</button>
+<button class="red" onclick="resetAll()">Reset everything</button>
+</div>
+</section>
+
+</main>
+
+<script>
+let data=JSON.parse(localStorage.getItem("patientTaskTracker")||'{"patients":[],"completed":[]}');
+let editing=null;
+
+function today(){return new Date().toISOString().slice(0,10)}
+function now(){return new Date().toLocaleString("en-GB",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"})}
+function save(){localStorage.setItem("patientTaskTracker",JSON.stringify(data));render()}
+function show(page){
+["active","add","today","completed","backup"].forEach(x=>document.getElementById(x).className=x==page?"":"hidden");
+["tactive","tadd","ttoday","tcompleted","tbackup"].forEach(x=>document.getElementById(x).className="tab");
+document.getElementById("t"+page).className="tab active";
+render();
+}
+
+function clearForm(){
+editing=null;
+patientRef.value="";dobYear.value="";dateAdded.value=today();dueDate.value="";priority.value="3";taskType.value="Medication review";status.value="Active";actionNeeded.value="";clinicalNotes.value="";
+}
+
+function savePatient(){
+if(!patientRef.value.trim())return;
+let p={id:editing||Date.now(),patientRef:patientRef.value,dobYear:dobYear.value,dateAdded:dateAdded.value||today(),dueDate:dueDate.value,priority:+priority.value,taskType:taskType.value,status:status.value,actionNeeded:actionNeeded.value,clinicalNotes:clinicalNotes.value,updates:editing?(data.patients.find(x=>x.id==editing)?.updates||[]):[],updated:now()};
+if(editing)data.patients=data.patients.map(x=>x.id==editing?p:x);else data.patients.push(p);
+clearForm();save();show("active");
+}
+
+function editPatient(id){
+let p=data.patients.find(x=>x.id==id);if(!p)return;editing=id;
+patientRef.value=p.patientRef;dobYear.value=p.dobYear||"";dateAdded.value=p.dateAdded||today();dueDate.value=p.dueDate||"";priority.value=p.priority||3;taskType.value=p.taskType||"Other";status.value=p.status||"Active";actionNeeded.value=p.actionNeeded||"";clinicalNotes.value=p.clinicalNotes||"";show("add");
+}
+
+function addUpdate(id){
+let box=document.getElementById("update"+id);
+if(!box.value.trim())return;
+data.patients.forEach(p=>{if(p.id==id)p.updates.push({time:now(),text:box.value})});
+save();
+}
+
+function completePatient(id){
+let p=data.patients.find(x=>x.id==id);if(!p)return;
+p.completed=now();
+data.completed.push(p);
+data.patients=data.patients.filter(x=>x.id!=id);
+save();
+}
+
+function deleteCompleted(id){
+if(confirm("Delete permanently?")){data.completed=data.completed.filter(x=>x.id!=id);save()}
+}
+
+function drawPatient(p){
+let overdue=p.dueDate && p.dueDate<today();
+let dueToday=p.dueDate==today();
+let h=`<div class="patient p${p.priority}">
+<h3>${p.patientRef}</h3>
+<span class="badge ${p.priority<=2?'urgent':''}">Priority ${p.priority}</span>
+<span class="badge">${p.taskType}</span>
+<span class="badge ${p.status=='Waiting'?'waiting':''}">${p.status}</span>
+${overdue?'<span class="badge urgent">Overdue</span>':dueToday?'<span class="badge urgent">Due today</span>':''}
+<p><b>DOB year:</b> ${p.dobYear||""}</p>
+<p><b>Date added:</b> ${p.dateAdded||""}</p>
+<p><b>Due/review:</b> ${p.dueDate||"No date"}</p>
+<p><b>Action needed:</b><br>${p.actionNeeded||""}</p>
+<p><b>Notes:</b><br>${p.clinicalNotes||""}</p>
+<textarea id="update${p.id}" placeholder="Add timestamped update / outcome"></textarea>
+<button class="blue" onclick="addUpdate(${p.id})">Add update</button>
+<button class="green" onclick="completePatient(${p.id})">Completed</button>
+<button class="gold" onclick="editPatient(${p.id})">Edit</button>`;
+(p.updates||[]).forEach(u=>h+=`<div class="note"><div class="time">${u.time}</div>${u.text}</div>`);
+return h+"</div>";
+}
+
+function render(){
+let q=(search?.value||"").toLowerCase();
+let sf=statusFilter?.value||"";
+let pts=data.patients.slice().sort((a,b)=>
+(a.dueDate||"9999-99-99").localeCompare(b.dueDate||"9999-99-99") || a.priority-b.priority
+);
+pts=pts.filter(p=>(!sf||p.status==sf)&&JSON.stringify(p).toLowerCase().includes(q));
+sActive.textContent=data.patients.length;
+sHigh.textContent=data.patients.filter(p=>p.priority<=2).length;
+activeList.innerHTML=pts.length?pts.map(drawPatient).join(""):"<p>No active patient tasks.</p>";
+
+let due=data.patients.filter(p=>p.dueDate && p.dueDate<=today()).sort((a,b)=>a.priority-b.priority);
+dueList.innerHTML=due.length?due.map(drawPatient).join(""):"<p>No patients due today/overdue.</p>";
+
+completedList.innerHTML=data.completed.length?data.completed.slice().reverse().map(p=>`<div class="patient p${p.priority}"><h3>${p.patientRef}</h3><p>Completed: ${p.completed}</p><p>${p.actionNeeded||""}</p><button class="red" onclick="deleteCompleted(${p.id})">Delete permanently</button></div>`).join(""):"<p>No completed items.</p>";
+}
+
+function exportData(){
+let a=document.createElement("a");
+a.href=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:"text/plain"}));
+a.download="patient-task-tracker-backup.txt";
+a.click();
+}
+function importData(){try{data=JSON.parse(importBox.value);save();alert("Restored")}catch(e){alert("Could not restore")}}
+function resetAll(){if(confirm("Delete everything?")){data={patients:[],completed:[]};save()}}
+if("serviceWorker" in navigator){navigator.serviceWorker.register("service-worker.js")}
+clearForm();render();
+</script>
+</body>
+</html>
